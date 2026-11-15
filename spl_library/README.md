@@ -4,7 +4,8 @@ A modern library for storing, searching, and managing your Splunk queries.
 
 ## Cloud compatibility
 
-Built to pass Splunk AppInspect cloud checks:
+Passes Splunk AppInspect 4.4.0 with the cloud, private_victoria and
+private_classic check sets (0 failures; every build is checked):
 - No custom REST handlers, no restmap.conf, no web.conf changes
 - No binaries or Python in bin/
 - No inline JavaScript in views — all code lives in appserver/static/
@@ -49,3 +50,6 @@ Splunk Enterprise: extract to $SPLUNK_HOME/etc/apps/ or install the
 
 All users can read and add queries. To restrict who can write, edit the
 [collections] stanza in metadata/default.meta.
+
+The app's views, nav and lookup can be changed by admin, power and sc_admin
+(the Splunk Cloud administrator role).

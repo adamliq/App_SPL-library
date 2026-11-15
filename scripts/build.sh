@@ -9,7 +9,9 @@ OUT_DIR=${1:-dist}
 
 fail() { echo "error: $*" >&2; exit 1; }
 
-version=$(sed -n 's/^version[[:space:]]*=[[:space:]]*//p' "$APP/default/app.conf" | head -n1 | tr -d '[:space:]')
+versions=$(sed -n 's/^version[[:space:]]*=[[:space:]]*//p' "$APP/default/app.conf" | tr -d '[:blank:]\r' | sort -u)
+[[ $(wc -l <<<"$versions") -eq 1 ]] || fail "app.conf [id] and [launcher] versions differ: $(echo $versions)"
+version=$versions
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "app.conf version '$version' is not X.Y.Z"
 
 # AppInspect rejects hidden files such as .DS_Store

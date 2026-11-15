@@ -1,0 +1,11 @@
+{
+  "name": "spl-library-ui-test",
+  "private": true,
+  "description": "End-to-end test of the SPL Library dashboard against a local Splunk",
+  "scripts": {
+    "test": "node ui-test.js"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
