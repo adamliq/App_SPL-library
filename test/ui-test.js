@@ -28,7 +28,8 @@ function check(ok, what) {
   const page = await ctx.newPage();
   const pageErrors = [];
   page.on('pageerror', e => pageErrors.push(e.message));
-  page.on('dialog', d => d.accept());
+  let dialogs = 0;
+  page.on('dialog', d => { dialogs++; d.accept(); });
   const snap = name => page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const cards = () => page.locator('#spl-library-root .sl-card');
   const active = sel => page.evaluate(s => !!document.activeElement.closest(s), sel);
@@ -144,6 +145,54 @@ function check(ok, what) {
     'compact view is remembered after a reload');
   await page.click('.sl-view-btn[data-view="cards"]');
 
+  // Escape and Tab in dialogs, and focus returning to the button that opened them
+  const addButton = '.sl-topbar .sl-btn-primary';
+  await page.click(addButton);
+  await page.keyboard.press('Escape');
+  check(!(await page.isVisible('.sl-modal')), 'Escape closes an untouched form');
+  check(await active('.sl-topbar'), 'closing the form returns focus to "+ Add query"');
+  await page.click(addButton);
+  await page.fill('.sl-modal .sl-input >> nth=0', 'draft');
+  await page.keyboard.press('Escape');
+  check(await page.isVisible('.sl-modal .sl-discard'), 'Escape with changes asks before discarding');
+  await page.keyboard.press('Escape');
+  check(!(await page.isVisible('.sl-modal .sl-discard')) &&
+    await page.inputValue('.sl-modal .sl-input >> nth=0') === 'draft', 'Escape on that prompt keeps editing');
+  await page.focus('.sl-modal .sl-btn-primary');
+  await page.keyboard.press('Tab');
+  check(await active('.sl-modal') && await page.evaluate(() => document.activeElement.classList.contains('sl-input')),
+    'Tab from the last button wraps to the first field');
+  await page.keyboard.press('Shift+Tab');
+  check(await page.evaluate(() => document.activeElement.classList.contains('sl-btn-primary')),
+    'Shift+Tab from the first field wraps to the last button');
+  await page.mouse.click(5, 5);
+  await page.keyboard.press('Tab');
+  check(await active('.sl-modal'), 'Tab cannot move focus behind the dialog');
+  await page.keyboard.press('Escape');
+  await page.click('.sl-btn-discard');
+
+  // Splunk's app menu: Starred and Add query links, and the app's own icon
+  const navStarred = page.locator('a[href="library#cat=Starred"]');
+  const navAdd = page.locator('a[href="library#new"]');
+  check(await navStarred.count() > 0 && await navAdd.count() > 0, "Splunk's app menu has Starred and Add query");
+  await navStarred.first().click();
+  await page.waitForTimeout(400);
+  check(await page.getAttribute('.sl-cat-starred', 'aria-pressed') === 'true', 'the Starred menu link opens the Starred filter');
+  await navAdd.first().click();
+  check(await page.locator('.sl-modal').waitFor({ timeout: 5000 }).then(() => true, () => false),
+    'the Add query menu link opens the add form');
+  await page.keyboard.press('Escape');
+  await page.locator('.sl-cat-btn').first().click();
+  const servedIcon = await page.evaluate(async () => {
+    const r = await fetch('/en-US/splunkd/__raw/servicesNS/nobody/spl_library/static/appIcon.png');
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    let bin = '';
+    bytes.forEach(b => { bin += String.fromCharCode(b); });
+    return btoa(bin);
+  });
+  const ownIcon = fs.readFileSync(path.join(__dirname, '..', 'spl_library', 'static', 'appIcon.png')).toString('base64');
+  check(servedIcon === ownIcon, 'Splunk serves the app’s own icon, not its default badge');
+
   // Cancel asks before throwing away a draft
   await page.click('.sl-topbar .sl-btn-primary');
   await page.click('.sl-modal .sl-btn-cancel');
@@ -175,6 +224,7 @@ function check(ok, what) {
   await page.click('.sl-modal .sl-btn-primary');
   const card = cards().filter({ hasText: title });
   check(await card.waitFor({ timeout: 15000 }).then(() => true, () => false), 'saved query appears in the list');
+  check(await page.locator('.sl-toast', { hasText: 'Query added' }).isVisible(), 'a notification confirms the new query');
   const key = await card.getAttribute('data-key');
   const isOpen = async (c = card) => /\bopen\b/.test(await c.getAttribute('class'));
   const expand = async () => { if (!(await isOpen())) await card.locator('.sl-card-header').click(); };
@@ -265,6 +315,26 @@ function check(ok, what) {
   const fav = await kvGet('spl_library_favorites', USER);
   check(!(fav.body && (fav.body.keys || []).includes(key)), 'deleting a query removes it from favorites');
   check(await starred() === starredBefore, 'Starred count is back to where it started');
+  // Undo brings the query back with the same key, use count and star
+  check(await page.locator('.sl-toast', { hasText: 'Deleted' }).isVisible(), 'deleting shows a notification with Undo');
+  await page.screenshot({ path: path.join(OUT, 'light-undo.png') });
+  await page.click('.sl-toast-action');
+  check(await card.waitFor({ timeout: 15000 }).then(() => true, () => false) &&
+    await card.getAttribute('data-key') === key, 'Undo restores the query under the same key');
+  await page.waitForTimeout(1000);
+  check((await kvGet('spl_library_queries', key)).status === 200, 'the restored query is saved');
+  check(Number(((await kvGet('spl_library_usage', key)).body || {}).count) === 2, 'Undo restores its use count');
+  const favBack = await kvGet('spl_library_favorites', USER);
+  check(!!(favBack.body && (favBack.body.keys || []).includes(key)), 'Undo restores its star');
+  check(await page.locator('.sl-toast', { hasText: 'restored' }).isVisible(), 'a notification confirms the restore');
+
+  // Delete it again for good
+  await expand();
+  await card.locator('.sl-btn-delete').click();
+  check(await card.waitFor({ state: 'detached', timeout: 15000 }).then(() => true, () => false),
+    'the query can be deleted again');
+  await page.waitForTimeout(1000);
+  check(dialogs === 0, 'no browser confirm popups were used');
 
   // Loading: placeholders while waiting, and automatic retries while the KV Store starts
   {

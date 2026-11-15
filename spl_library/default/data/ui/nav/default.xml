@@ -1,4 +1,6 @@
 <nav search_view="search" color="#1e3a5f">
   <view name="library" default="true" label="Query Library" />
+  <a href="library#cat=Starred">Starred</a>
+  <a href="library#new">Add query</a>
   <view name="search" />
 </nav>

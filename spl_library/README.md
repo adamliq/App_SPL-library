@@ -35,11 +35,15 @@ private_classic check sets (0 failures; every build is checked):
 - Shareable links: the address bar always reflects the current search, category,
   sort and open query, and "Copy link" on a card copies a link that opens it
 - Keyboard friendly: press / to search, Esc to clear, Enter/Space to expand a card,
-  Ctrl/Cmd+Enter to save in the query form
+  Ctrl/Cmd+Enter to save in the query form, Esc to close a form (asking first if
+  it has changes); Tab stays inside open forms
 - Copy SPL to clipboard with one click
 - "Open in Search" — runs the saved query directly in the Search app
 - Add / edit / delete queries via a modal form with tag management; Cancel
   asks before discarding unsaved changes
+- Deleting a query shows an Undo notification that restores it completely,
+  including its use count and star; saves are confirmed the same way
+- Splunk's app menu links straight to Starred and to the add-query form
 - Auto-seeds example queries on first load (into an empty collection only)
 - Records author and created/updated dates per query
 

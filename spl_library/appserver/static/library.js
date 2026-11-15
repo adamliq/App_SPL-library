@@ -132,6 +132,7 @@ require([
     state.filterTag = p.get('tag') || '';
     state.sort = SORTS.hasOwnProperty(p.get('sort')) ? p.get('sort') : 'newest';
     state.pendingOpen = p.get('open') || null;
+    state.pendingNew = p.has('new');
   }
 
   function writeHash() {
@@ -222,6 +223,7 @@ require([
         var opened = applyPendingOpen();
         render();
         if (opened) revealCard(opened);
+        openPendingNew();
       });
     }).fail(function (xhr) {
       if (retryable(xhr) && attempt < RETRY_DELAYS.length) {
@@ -327,6 +329,7 @@ require([
       q._key = res._key;
       state.queries.unshift(q);
       closeModal();
+      showToast('Query added');
     }).fail(function (xhr) {
       state.formError = saveError(xhr); render();
     });
@@ -343,13 +346,19 @@ require([
         }
       }
       closeModal();
+      showToast('Query saved');
     }).fail(function (xhr) {
       state.formError = saveError(xhr); render();
     });
   }
 
+  // Deletes straight away and offers Undo, which writes the query back under the
+  // same key with its use count and star, so a deleted query can be fully restored.
   function deleteQuery(key) {
-    if (!window.confirm('Remove this query from the library?')) return;
+    var q = findQuery(key);
+    if (!q) return;
+    var snapshot = { query: $.extend({}, q), uses: state.usage[key] || 0,
+                     starred: isFavorite(key), expanded: !!state.expanded[key] };
     kv('DELETE', '/' + encodeURIComponent(key)).done(function () {
       state.queries = state.queries.filter(function (q) { return q._key !== key; });
       delete state.expanded[key];
@@ -364,8 +373,34 @@ require([
         saveFavorites(prev);
       }
       render();
+      showToast('Deleted \u201c' + (q.title || 'untitled') + '\u201d', 'Undo', function () { restoreQuery(snapshot); });
     }).fail(function (xhr) {
       state.error = 'Delete failed (HTTP ' + xhr.status + '). You may not have write access.';
+      render();
+    });
+  }
+
+  function restoreQuery(snap) {
+    var doc = $.extend({}, snap.query);
+    delete doc._user;
+    kv('POST', '/batch_save', [doc]).done(function () {
+      state.queries.push(doc);
+      if (snap.uses) {
+        state.usage[doc._key] = snap.uses;
+        kv('POST', '/batch_save', [{ _key: doc._key, count: snap.uses, last_used: new Date().toISOString() }],
+           USAGE_COLLECTION);
+      }
+      if (snap.starred && !isFavorite(doc._key)) {
+        var prev = state.favorites.slice();
+        state.favorites = state.favorites.concat([doc._key]);
+        saveFavorites(prev);
+      }
+      if (snap.expanded) state.expanded[doc._key] = true;
+      render();
+      revealCard(doc._key);
+      showToast('Query restored');
+    }).fail(function (xhr) {
+      state.error = 'Could not restore the query (HTTP ' + xhr.status + ').';
       render();
     });
   }
@@ -631,6 +666,68 @@ require([
     setTimeout(function () { c.classList.remove('sl-flash'); }, 1800);
   }
 
+  /* ── Notifications ─────────────────────────────────────────── */
+  // One message at a time at the bottom of the screen; kept across re-renders
+  var toast = null, toastTimer = null;
+  function showToast(message, actionLabel, action) {
+    hideToast();
+    toast = el('div', 'sl-toast');
+    toast.setAttribute('role', 'status');
+    toast.appendChild(el('span', 'sl-toast-text', message));
+    if (actionLabel) {
+      var b = el('button', 'sl-toast-action', actionLabel);
+      b.type = 'button';
+      b.addEventListener('click', function () { hideToast(); action(); });
+      toast.appendChild(b);
+    }
+    $root[0].appendChild(toast);
+    toastTimer = setTimeout(hideToast, actionLabel ? 8000 : 3000);
+  }
+  function hideToast() {
+    clearTimeout(toastTimer);
+    if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
+    toast = null;
+  }
+
+  // "Add query" in Splunk's app menu links to #new
+  function openPendingNew() {
+    if (!state.pendingNew) return;
+    state.pendingNew = false;
+    if (!state.modal) openModal(null);
+  }
+
+  /* ── Dialog keyboard handling ─────────────────────────────── */
+  function focusables(container) {
+    return Array.prototype.filter.call(
+      container.querySelectorAll('button, input, select, textarea, a[href]'),
+      function (e) { return !e.disabled && e.offsetParent !== null; });
+  }
+
+  // Escape closes the open dialog (via the discard prompt if there are changes;
+  // on the prompt itself it means "Keep editing"), and Tab stays inside it.
+  document.addEventListener('keydown', function (e) {
+    if (!state.modal) return;
+    var modal = $root[0].querySelector('.sl-modal');
+    if (!modal) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (state.confirmDiscard) {
+        state.confirmDiscard = false;
+        render();
+        focusModalField('.sl-input:not(:disabled)');
+      } else {
+        cancelModal();
+      }
+    } else if (e.key === 'Tab') {
+      var f = focusables(modal);
+      if (!f.length) return;
+      var first = f[0], last = f[f.length - 1], inside = modal.contains(document.activeElement);
+      if (!inside) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
   function focusSearch() {
     var s = $root[0].querySelector('.sl-search-input');
     if (s) { s.focus(); s.select(); }
@@ -647,6 +744,7 @@ require([
   function render() {
     $root.empty();
     var root = $root[0];
+    if (toast) root.appendChild(toast);
     root.setAttribute('data-theme', state.theme);
     // Container-query wrapper; the modal overlay stays outside it because
     // containment would make it the containing block for position:fixed.
@@ -1074,6 +1172,9 @@ require([
       state.form = { title: '', description: '', spl: '', category: cat, tags: [] };
     }
     state.formSnapshot = formSignature(state.form);
+    state.returnFocus = q
+      ? function () { focusInCard(q._key, '.sl-btn-edit'); }
+      : function () { var b = $root[0].querySelector('.sl-topbar .sl-btn-primary'); if (b) b.focus(); };
     render();
     focusModalField('.sl-input');
   }
@@ -1087,7 +1188,10 @@ require([
     state.modal = null; state.form = null; state.formError = null;
     state.catDraft = null; state.catError = null;
     state.formSnapshot = null; state.confirmDiscard = false;
+    var returnFocus = state.returnFocus;
+    state.returnFocus = null;
     render();
+    if (returnFocus) returnFocus();
   }
 
   // Cancel/Save buttons, or the "Discard your changes?" prompt in their place
@@ -1242,7 +1346,9 @@ require([
       return { _key: c._key, name: c.name, color: c.color, origName: c.name };
     });
     state.formSnapshot = catSignature(state.catDraft);
+    state.returnFocus = function () { var b = $root[0].querySelector('.sl-side-manage'); if (b) b.focus(); };
     render();
+    focusModalField('.sl-cat-name');
   }
 
   function newCategoryKey(name) {
@@ -1308,6 +1414,7 @@ require([
       if (moves.hasOwnProperty(state.filterCat)) state.filterCat = moves[state.filterCat];
       normalizeFilters();
       closeModal();
+      showToast('Categories updated');
     }).fail(function (xhr) {
       state.catError = (xhr && xhr.status === 403)
         ? 'You do not have permission to change categories.'
@@ -1424,6 +1531,7 @@ require([
     var opened = applyPendingOpen();
     render();
     if (opened) revealCard(opened);
+    openPendingNew();
   });
 
   // Closing or reloading the tab with an unsaved draft triggers the browser's own warning
