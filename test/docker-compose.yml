@@ -1,0 +1,21 @@
+# Local Splunk for trying the app. The source folder is mounted into the
+# container, so JS/CSS edits show up on a browser refresh (conf changes need
+# a Splunk restart). For local testing only: the admin password is a
+# throwaway default; set SPLUNK_PASSWORD to override it.
+#
+#   docker compose -f test/docker-compose.yml up -d --wait
+#   open http://localhost:8000  (admin / $SPLUNK_PASSWORD)
+#   docker compose -f test/docker-compose.yml down -v
+services:
+  splunk:
+    image: splunk/splunk:${SPLUNK_VERSION:-latest}
+    platform: linux/amd64
+    environment:
+      SPLUNK_START_ARGS: --accept-license
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
+      SPLUNK_PASSWORD: ${SPLUNK_PASSWORD:-Changeme123!}
+    ports:
+      - "8000:8000"
+      - "8089:8089"
+    volumes:
+      - ../spl_library:/opt/splunk/etc/apps/spl_library

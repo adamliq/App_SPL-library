@@ -20,9 +20,29 @@ jobs:
       - name: Check and package
         run: scripts/build.sh dist
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Splunk AppInspect
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install splunk-appinspect==4.4.0
+
+      - name: Run AppInspect (Splunk Cloud checks)
+        run: scripts/appinspect.sh dist/*.spl dist/appinspect
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: spl-library
           path: dist/*.spl
           if-no-files-found: error
+
+      - name: Upload AppInspect reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appinspect-reports
+          path: dist/appinspect/
+          if-no-files-found: ignore
