@@ -1,7 +1,8 @@
 # Local Splunk for trying the app. The source folder is mounted into the
-# container, so JS/CSS edits show up on a browser refresh (conf changes need
-# a Splunk restart). For local testing only: the admin password is a
-# throwaway default; set SPLUNK_PASSWORD to override it.
+# container; after JS/CSS edits visit /en-US/_bump and click "Bump version"
+# (Splunk caches static files), and restart Splunk after .conf changes.
+# For local testing only: the admin password is a throwaway default; set
+# SPLUNK_PASSWORD to override it.
 #
 #   docker compose -f test/docker-compose.yml up -d --wait
 #   open http://localhost:8000  (admin / $SPLUNK_PASSWORD)

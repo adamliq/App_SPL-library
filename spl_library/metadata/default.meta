@@ -6,6 +6,11 @@ export = system
 access = read : [ * ], write : [ * ]
 export = system
 
+# Only these roles can add, rename or delete categories
+[collections/spl_library_categories]
+access = read : [ * ], write : [ admin, sc_admin, power ]
+export = system
+
 [transforms]
 access = read : [ * ], write : [ admin, sc_admin, power ]
 export = system

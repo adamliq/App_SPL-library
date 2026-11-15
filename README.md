@@ -57,8 +57,10 @@ npm test                                                  # end-to-end checks, a
 docker compose -f test/docker-compose.yml down -v         # stop and discard the container
 ```
 
-The container mounts `spl_library/` directly, so JavaScript and CSS edits show
-up on a browser refresh; changes to `.conf` files need a Splunk restart
+The container mounts `spl_library/` directly. Splunk caches the app's
+JavaScript and CSS, so after editing them open
+http://localhost:8000/en-US/_bump and click **Bump version**, then refresh
+(`npm test` does this for you). Changes to `.conf` files need a Splunk restart
 (`docker compose -f test/docker-compose.yml restart`). The admin password is a
 throwaway default for local use; set `SPLUNK_PASSWORD` to change it, for both
 the container and the test.
@@ -66,10 +68,13 @@ the container and the test.
 `npm test` logs in, then checks search and its keyboard shortcuts, card
 expand/collapse, the theme toggle, the narrow-panel layout, the add-query form,
 SPL and search-match highlighting, tag filtering, line wrapping, the sticky
-top bar and sidebar, the discard prompt, shareable links (including following a
-copied link in a new tab), stars, usage counts and sorting. Those checks run on
-a temporary query that is deleted at the end, along with its usage count and
-star, so the test leaves the library as it found it. Screenshots are saved in
+top bar and sidebar, the compact view, the discard prompt, shareable links
+(including following a copied link in a new tab), stars, usage counts and
+sorting, loading placeholders and retries (by intercepting the app's requests),
+and category management, including that a temporary non-admin user cannot see
+Manage and that Splunk refuses their direct writes. Everything runs on temporary
+queries, categories and users that are removed at the end, so the test leaves
+the library as it found it. Screenshots are saved in
 `test/screenshots/`.
 
 ## Installing
