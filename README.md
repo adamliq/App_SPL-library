@@ -70,7 +70,8 @@ the container and the test.
 expand/collapse, the theme toggle, the narrow-panel layout, the add-query form,
 SPL and search-match highlighting, tag filtering, line wrapping, the sticky
 top bar and sidebar, the compact view, the discard prompt, Escape and Tab in
-dialogs, Splunk's app menu links and icon, Undo after delete, shareable links
+dialogs, Splunk's app menu links and icon, Undo after delete, the More menu,
+Duplicate, the form's SPL preview, edit history, Mine, popular tags, shareable links
 (including following a copied link in a new tab), stars, usage counts and
 sorting, loading placeholders and retries (by intercepting the app's requests),
 and category management, including that a temporary non-admin user cannot see

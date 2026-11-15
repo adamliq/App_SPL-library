@@ -17,11 +17,12 @@ require([
   var FAV_COLLECTION = 'spl_library_favorites';   // one doc per user: { _key: username, keys: [...] }
   var USAGE_COLLECTION = 'spl_library_usage';     // one doc per query: { _key: query key, count }
   var STARRED = 'Starred';
+  var MINE = 'Mine';                   // queries the current user added
   var SORTS = { newest: 'Newest', title: 'Title (A–Z)', used: 'Most used' };
 
   var CAT_COLLECTION = 'spl_library_categories'; // { _key, name, color, order }
   var OTHER = 'Other';                 // fallback category: cannot be renamed or deleted
-  var RESERVED_NAMES = ['all', 'starred'];
+  var RESERVED_NAMES = ['all', 'starred', 'mine'];
   var PALETTE = {
     blue:   { dark: { bg: '#1a2740', accent: '#4f8ef7' }, light: { bg: '#e6eefd', accent: '#2563eb' } },
     green:  { dark: { bg: '#1a2c28', accent: '#3ecf8e' }, light: { bg: '#e1f7ec', accent: '#059669' } },
@@ -265,7 +266,8 @@ require([
   }
 
   function normalizeFilters() {
-    if (state.filterCat !== 'All' && state.filterCat !== STARRED && !findCategory(state.filterCat)) {
+    if (state.filterCat !== 'All' && state.filterCat !== STARRED && state.filterCat !== MINE &&
+        !findCategory(state.filterCat)) {
       state.filterCat = 'All';
     }
   }
@@ -337,6 +339,7 @@ require([
 
   function updateQuery(key, q) {
     q.updated_at = today();
+    q.updated_by = currentUser();
     delete q._user; delete q._owner;
     kv('POST', '/' + encodeURIComponent(key), q).done(function () {
       for (var i = 0; i < state.queries.length; i++) {
@@ -469,7 +472,9 @@ require([
     }[state.sort] || newest;
     return state.queries.filter(function (q) {
       var catOk = state.filterCat === 'All' ||
-        (state.filterCat === STARRED ? isFavorite(q._key) : q.category === state.filterCat);
+        (state.filterCat === STARRED ? isFavorite(q._key)
+          : state.filterCat === MINE ? q.author === currentUser()
+          : q.category === state.filterCat);
       var tag = state.filterTag.toLowerCase();
       var tagOk = !tag || tagsOf(q).some(function (t) { return t.toLowerCase() === tag; });
       var hay = [q.title, q.description, q.spl, q.tags].join(' ').toLowerCase();
@@ -480,6 +485,7 @@ require([
   function counts() {
     var c = { All: state.queries.length };
     c[STARRED] = state.queries.filter(function (q) { return isFavorite(q._key); }).length;
+    c[MINE] = state.queries.filter(function (q) { return q.author === currentUser(); }).length;
     categoryNames().forEach(function (cat) {
       c[cat] = state.queries.filter(function (q) { return q.category === cat; }).length;
     });
@@ -504,6 +510,7 @@ require([
              'M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
     moon:    SVG_OPEN + '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
     chevron: SVG_OPEN + '<path d="M6 9l6 6 6-6"/></svg>',
+    user:    SVG_OPEN + '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>',
     viewCards: SVG_OPEN + '<rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/></svg>',
     viewList: SVG_OPEN + '<path d="M9 6h12M9 12h12M9 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>',
     up:      SVG_OPEN + '<path d="M18 15l-6-6-6 6"/></svg>',
@@ -666,6 +673,120 @@ require([
     setTimeout(function () { c.classList.remove('sl-flash'); }, 1800);
   }
 
+  // 'YYYY-MM-DD' (as stored) to "today", "yesterday", "3 days ago" or "on 2026-01-02"
+  function relativeDay(date) {
+    var then = Date.parse(String(date || '') + 'T00:00:00Z'), now = Date.parse(today() + 'T00:00:00Z');
+    if (isNaN(then)) return 'recently';
+    var days = Math.round((now - then) / 86400000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 7) return days + ' days ago';
+    return 'on ' + date;
+  }
+
+  function popularTags(limit) {
+    var counts = {}, names = {};
+    state.queries.forEach(function (q) {
+      var seen = {};
+      tagsOf(q).forEach(function (t) {
+        var k = t.toLowerCase();
+        if (seen[k]) return;
+        seen[k] = true;
+        counts[k] = (counts[k] || 0) + 1;
+        names[k] = names[k] || t;
+      });
+    });
+    return Object.keys(counts)
+      .sort(function (a, b) { return counts[b] - counts[a] || a.localeCompare(b); })
+      .slice(0, limit)
+      .map(function (k) { return { tag: names[k], count: counts[k] }; });
+  }
+
+  function duplicateQuery(q) {
+    openModal(null);
+    state.form = {
+      title: 'Copy of ' + (q.title || ''), description: q.description || '', spl: q.spl || '',
+      category: findCategory(q.category) ? q.category : categoryNames()[0], tags: tagsOf(q)
+    };
+    state.formSnapshot = formSignature(state.form);
+    state.returnFocus = function () { focusInCard(q._key, '.sl-more'); };
+    render();
+    focusModalField('.sl-input');
+  }
+
+  /* ── Card "More" menu ──────────────────────────────────────── */
+  // Lives at the root with fixed positioning because cards clip their overflow
+  // (and .sl-app's containment would anchor position:fixed to itself).
+  var menu = null;
+  function closeMenu(refocus) {
+    if (!menu) return;
+    var m = menu;
+    menu = null;
+    if (m.el.parentNode) m.el.parentNode.removeChild(m.el);
+    m.button.setAttribute('aria-expanded', 'false');
+    if (refocus && document.body.contains(m.button)) m.button.focus();
+  }
+
+  function openMenu(button, q, focusIndex) {
+    closeMenu(false);
+    var list = el('div', 'sl-menu');
+    list.setAttribute('role', 'menu');
+    list.setAttribute('aria-label', 'More actions for ' + (q.title || 'query'));
+    [
+      ['Copy link', 'sl-menu-link', function () { copyText(linkTo(q._key)); showToast('Link copied'); }],
+      ['Duplicate', 'sl-menu-duplicate', function () { duplicateQuery(q); }],
+      ['Edit', 'sl-menu-edit', function () { openModal(q); }],
+      ['Delete', 'sl-menu-delete', function () { deleteQuery(q._key); }]
+    ].forEach(function (item) {
+      var b = el('button', 'sl-menu-item ' + item[1], item[0]);
+      b.type = 'button';
+      b.tabIndex = -1;
+      b.setAttribute('role', 'menuitem');
+      b.addEventListener('click', function (e) { e.stopPropagation(); closeMenu(false); item[2](); });
+      list.appendChild(b);
+    });
+    list.addEventListener('keydown', function (e) {
+      var items = list.querySelectorAll('.sl-menu-item');
+      var i = Array.prototype.indexOf.call(items, document.activeElement);
+      var go = function (j) { e.preventDefault(); items[(j + items.length) % items.length].focus({ preventScroll: true }); };
+      if (e.key === 'ArrowDown') go(i + 1);
+      else if (e.key === 'ArrowUp') go(i - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(items.length - 1);
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(true); }
+      else if (e.key === 'Tab') closeMenu(true);
+    });
+    $root[0].appendChild(list);
+    button.setAttribute('aria-expanded', 'true');
+    menu = { el: list, button: button };
+    positionMenu();
+    var items = list.querySelectorAll('.sl-menu-item');
+    items[focusIndex < 0 ? items.length - 1 : focusIndex].focus({ preventScroll: true });
+  }
+
+  // Below the button (above it if there is no room); follows it when the page
+  // scrolls, and closes once the button has scrolled out of view
+  function positionMenu() {
+    if (!menu) return;
+    var r = menu.button.getBoundingClientRect(), list = menu.el;
+    if (r.bottom < 0 || r.top > window.innerHeight) { closeMenu(false); return; }
+    var top = r.bottom + 4;
+    if (top + list.offsetHeight > window.innerHeight - 8) top = r.top - list.offsetHeight - 4;
+    list.style.top = top + 'px';
+    list.style.left = Math.max(8, Math.min(r.right - list.offsetWidth, window.innerWidth - list.offsetWidth - 8)) + 'px';
+  }
+
+  function toggleMenu(button, q) {
+    if (menu && menu.button === button) closeMenu(true);
+    else openMenu(button, q, 0);
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (menu && !menu.el.contains(e.target) && !menu.button.contains(e.target)) closeMenu(false);
+  }, true);
+  window.addEventListener('scroll', positionMenu, true);
+  window.addEventListener('resize', positionMenu);
+
   /* ── Notifications ─────────────────────────────────────────── */
   // One message at a time at the bottom of the screen; kept across re-renders
   var toast = null, toastTimer = null;
@@ -742,6 +863,7 @@ require([
   });
 
   function render() {
+    closeMenu(false);
     $root.empty();
     var root = $root[0];
     if (toast) root.appendChild(toast);
@@ -829,15 +951,19 @@ require([
     }
     side.appendChild(heading);
     var c = counts();
-    ['All', STARRED].concat(categoryNames()).forEach(function (cat) {
+    ['All', STARRED, MINE].concat(categoryNames()).forEach(function (cat) {
       var active = state.filterCat === cat;
-      var btn = el('button', 'sl-cat-btn' + (active ? ' active' : '') + (cat === STARRED ? ' sl-cat-starred' : ''));
-      var s = cat !== 'All' && cat !== STARRED ? catStyle(cat) : null;
+      var btn = el('button', 'sl-cat-btn' + (active ? ' active' : '') +
+        (cat === STARRED ? ' sl-cat-starred' : cat === MINE ? ' sl-cat-mine' : ''));
+      var s = cat !== 'All' && cat !== STARRED && cat !== MINE ? catStyle(cat) : null;
       if (active && s) btn.style.color = s.accent;
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       var left = el('span', 'sl-cat-left');
       if (cat === STARRED) {
         left.appendChild(icon('sl-cat-star', 'starOn'));
+      } else if (cat === MINE) {
+        left.appendChild(icon('sl-cat-mine-icon', 'user'));
+        btn.title = 'Queries you added';
       } else if (s) {
         var dot = el('span', 'sl-cat-dot');
         dot.style.background = s.accent;
@@ -849,6 +975,25 @@ require([
       btn.addEventListener('click', function () { state.filterCat = cat; render(); });
       side.appendChild(btn);
     });
+    var popular = popularTags(10);
+    if (popular.length) {
+      var tagBox = el('div', 'sl-side-tags');
+      tagBox.appendChild(el('p', 'sl-side-heading', 'Popular tags'));
+      var tagList = el('div', 'sl-side-tag-list');
+      popular.forEach(function (pt) {
+        var on = pt.tag.toLowerCase() === state.filterTag.toLowerCase();
+        var b = el('button', 'sl-tag sl-tag-btn sl-side-tag' + (on ? ' active' : ''));
+        b.type = 'button';
+        b.appendChild(document.createTextNode(pt.tag));
+        b.appendChild(el('span', 'sl-side-tag-count', String(pt.count)));
+        b.title = on ? 'Stop filtering by this tag' : 'Show queries tagged ' + pt.tag;
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.addEventListener('click', function () { state.filterTag = on ? '' : pt.tag; render(); });
+        tagList.appendChild(b);
+      });
+      tagBox.appendChild(tagList);
+      side.appendChild(tagBox);
+    }
     side.appendChild(el('hr', 'sl-side-divider'));
     var meta = el('p', 'sl-side-meta');
     meta.innerHTML = state.queries.length + ' saved ' +
@@ -932,7 +1077,7 @@ require([
     var left = el('div', 'sl-toolbar-left');
     left.appendChild(el('p', 'sl-results-info',
       rows.length + ' ' + noun +
-      (state.filterCat !== 'All' ? ' in ' + state.filterCat : '') +
+      (state.filterCat === MINE ? ' added by you' : state.filterCat !== 'All' ? ' in ' + state.filterCat : '') +
       (state.search ? ' matching "' + state.search + '"' : '')));
     if (state.filterTag) {
       var chip = el('button', 'sl-tag-filter');
@@ -941,7 +1086,7 @@ require([
       chip.appendChild(el('span', null, '#' + state.filterTag));
       chip.appendChild(el('span', 'sl-tag-filter-x', '\u00d7'));
       chip.setAttribute('aria-label', 'Remove tag filter ' + state.filterTag);
-      chip.addEventListener('click', function () { state.filterTag = ''; renderMainOnly(); });
+      chip.addEventListener('click', function () { state.filterTag = ''; render(); });
       left.appendChild(chip);
     }
     toolbar.appendChild(left);
@@ -1002,7 +1147,8 @@ require([
         main.appendChild(empty);
         return;
       }
-      empty.appendChild(el('p', null, 'No queries match.'));
+      empty.appendChild(el('p', null, state.filterCat === MINE && !state.search && !state.filterTag
+        ? 'You haven\u2019t added any queries yet.' : 'No queries match.'));
       var link = el('a', null, 'Add a new query');
       link.addEventListener('click', function () { openModal(null); });
       empty.appendChild(link);
@@ -1068,7 +1214,7 @@ require([
         tb.addEventListener('click', function (e) {
           e.stopPropagation();
           state.filterTag = activeTag ? '' : t;
-          renderMainOnly();
+          render();
         });
         tw.appendChild(tb);
       });
@@ -1096,8 +1242,13 @@ require([
       exp.appendChild(splBlock('pre', 'sl-spl' + (state.wrap ? ' wrap' : ''), q.spl, state.search));
 
       var footer = el('div', 'sl-card-footer');
-      footer.appendChild(el('span', 'sl-meta-text',
-        'Added ' + (q.created_at || '?') + ' by ' + (q.author || '?')));
+      var meta = el('span', 'sl-meta-text', 'Added ' + (q.created_at || '?') + ' by ' + (q.author || '?'));
+      if (q.updated_by) {
+        meta.appendChild(document.createTextNode(
+          ' \u00b7 Edited ' + relativeDay(q.updated_at) + ' by ' + q.updated_by));
+        meta.title = 'Last edited ' + (q.updated_at || '?') + ' by ' + q.updated_by;
+      }
+      footer.appendChild(meta);
 
       var actions = el('div', 'sl-actions');
 
@@ -1110,28 +1261,26 @@ require([
       });
       actions.appendChild(copyBtn);
 
-      var linkBtn = el('button', 'sl-btn-sm sl-btn-edit sl-btn-link', 'Copy link');
-      linkBtn.title = 'Copy a link that opens this query';
-      linkBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        copyText(linkTo(q._key));
-        confirmButton(linkBtn, 'Link copied');
-      });
-      actions.appendChild(linkBtn);
-
       var openLink = el('a', 'sl-btn-sm sl-btn-open', 'Open in Search \u2197');
       openLink.href = searchUrl(q.spl || '');
       openLink.target = '_blank';
       openLink.addEventListener('click', function (e) { e.stopPropagation(); recordUse(q._key); });
       actions.appendChild(openLink);
 
-      var editBtn = el('button', 'sl-btn-sm sl-btn-edit', 'Edit');
-      editBtn.addEventListener('click', function (e) { e.stopPropagation(); openModal(q); });
-      actions.appendChild(editBtn);
-
-      var delBtn = el('button', 'sl-btn-sm sl-btn-delete', 'Delete');
-      delBtn.addEventListener('click', function (e) { e.stopPropagation(); deleteQuery(q._key); });
-      actions.appendChild(delBtn);
+      var more = el('button', 'sl-btn-sm sl-btn-edit sl-more', '\u22ef');
+      more.type = 'button';
+      more.title = 'More actions';
+      more.setAttribute('aria-label', 'More actions');
+      more.setAttribute('aria-haspopup', 'menu');
+      more.setAttribute('aria-expanded', 'false');
+      more.addEventListener('click', function (e) { e.stopPropagation(); toggleMenu(more, q); });
+      more.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          openMenu(more, q, e.key === 'ArrowUp' ? -1 : 0);
+        }
+      });
+      actions.appendChild(more);
 
       footer.appendChild(actions);
       exp.appendChild(footer);
@@ -1173,7 +1322,7 @@ require([
     }
     state.formSnapshot = formSignature(state.form);
     state.returnFocus = q
-      ? function () { focusInCard(q._key, '.sl-btn-edit'); }
+      ? function () { focusInCard(q._key, '.sl-more'); }
       : function () { var b = $root[0].querySelector('.sl-topbar .sl-btn-primary'); if (b) b.focus(); };
     render();
     focusModalField('.sl-input');
@@ -1278,8 +1427,18 @@ require([
     var ta = el('textarea', 'sl-textarea');
     ta.value = f.spl;
     ta.placeholder = 'index=\u2026 sourcetype=\u2026\n| stats count by \u2026';
-    ta.addEventListener('input', function () { f.spl = this.value; });
+    var preview = el('div', 'sl-form-preview-wrap');
+    function updatePreview() {
+      preview.textContent = '';
+      preview.hidden = !f.spl.trim();
+      if (preview.hidden) return;
+      preview.appendChild(el('span', 'sl-label', 'Preview'));
+      preview.appendChild(splBlock('pre', 'sl-spl wrap sl-form-preview', f.spl));
+    }
+    ta.addEventListener('input', function () { f.spl = this.value; updatePreview(); });
     modal.appendChild(ta);
+    updatePreview();
+    modal.appendChild(preview);
 
     modal.appendChild(el('label', 'sl-label', 'Tags'));
     var tagRow = el('div', 'sl-tagrow');
@@ -1390,7 +1549,7 @@ require([
     removed.forEach(function (c) { moves[c.name] = OTHER; });
     var changed = state.queries.filter(function (q) { return moves.hasOwnProperty(q.category); })
       .map(function (q) {
-        var u = $.extend({}, q, { category: moves[q.category], updated_at: today() });
+        var u = $.extend({}, q, { category: moves[q.category], updated_at: today(), updated_by: currentUser() });
         delete u._user;
         return u;
       });
@@ -1409,7 +1568,10 @@ require([
     $.when.apply($, requests).done(function () {
       state.categories = docs;
       state.queries.forEach(function (q) {
-        if (moves.hasOwnProperty(q.category)) q.category = moves[q.category];
+        if (!moves.hasOwnProperty(q.category)) return;
+        q.category = moves[q.category];
+        q.updated_at = today();
+        q.updated_by = currentUser();
       });
       if (moves.hasOwnProperty(state.filterCat)) state.filterCat = moves[state.filterCat];
       normalizeFilters();
