@@ -64,9 +64,12 @@ throwaway default for local use; set `SPLUNK_PASSWORD` to change it, for both
 the container and the test.
 
 `npm test` logs in, then checks search and its keyboard shortcuts, card
-expand/collapse, the theme toggle, the narrow-panel layout, and the add-query
-form. It adds a query and deletes it again, so it leaves the library as it
-found it. Screenshots are saved in `test/screenshots/`.
+expand/collapse, the theme toggle, the narrow-panel layout, the add-query form,
+SPL and search-match highlighting, shareable links (including following a
+copied link in a new tab), stars, usage counts and sorting. Those checks run on
+a temporary query that is deleted at the end, along with its usage count and
+star, so the test leaves the library as it found it. Screenshots are saved in
+`test/screenshots/`.
 
 ## Installing
 
