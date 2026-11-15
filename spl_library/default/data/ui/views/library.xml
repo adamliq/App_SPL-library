@@ -1,0 +1,12 @@
+<dashboard version="1.1" script="library.js" stylesheet="library.css" hideEdit="true" hideFilters="true" theme="dark">
+  <label>Query Library</label>
+  <row>
+    <panel>
+      <html>
+        <div id="spl-library-root">
+          <div class="sl-boot">Loading SPL Library…</div>
+        </div>
+      </html>
+    </panel>
+  </row>
+</dashboard>
