@@ -32,6 +32,7 @@ function check(ok, what) {
   const snap = name => page.screenshot({ path: path.join(OUT, `${name}.png`) });
   const cards = () => page.locator('#spl-library-root .sl-card');
   const active = sel => page.evaluate(s => !!document.activeElement.closest(s), sel);
+  const hash = () => decodeURIComponent(new URL(page.url()).hash);
 
   await page.goto(`${BASE}/en-US/account/login`);
   await page.fill('#username', USER);
@@ -82,6 +83,62 @@ function check(ok, what) {
   await page.locator('#spl-library-root').screenshot({ path: path.join(OUT, 'light-narrow.png') });
   await page.evaluate(() => { document.getElementById('spl-library-root').style.width = ''; });
 
+  // Clicking a tag filters to queries with that tag; the filter is in the URL
+  await page.locator('.sl-tag-btn', { hasText: /^security$/ }).first().click();
+  await page.waitForTimeout(200);
+  const tagSets = await cards().evaluateAll(cs => cs.map(c => [...c.querySelectorAll('.sl-tag-btn')].map(t => t.textContent)));
+  check(tagSets.length > 0 && tagSets.length < total && tagSets.every(ts => ts.includes('security')),
+    'clicking a tag shows only queries with that tag');
+  check(hash().includes('tag=security'), 'the tag filter is in the URL');
+  await snap('light-tag-filter');
+  await page.click('.sl-tag-filter');
+  await page.waitForTimeout(200);
+  check((await cards().count()) === total, 'removing the tag chip clears the filter');
+
+  // Long SPL lines wrap by default; turning wrapping off is remembered
+  const longCard = cards().filter({ hasText: 'Microsoft 365' });
+  if (!/\bopen\b/.test(await longCard.getAttribute('class'))) await longCard.locator('.sl-card-header').click();
+  const narrowRoot = w => page.evaluate(w => { document.getElementById('spl-library-root').style.width = w; }, w);
+  const splFits = () => longCard.locator('.sl-spl').evaluate(e => e.scrollWidth <= e.clientWidth + 1);
+  await narrowRoot('560px');
+  check(await splFits(), 'long SPL lines wrap by default');
+  await page.uncheck('.sl-wrap-toggle input');
+  check(!(await splFits()), 'turning wrapping off keeps long lines on one line');
+  await page.reload();
+  await longCard.waitFor({ timeout: 30000 });
+  check(!(await page.isChecked('.sl-wrap-toggle input')), 'the wrap setting is remembered');
+  await page.check('.sl-wrap-toggle input');
+  await narrowRoot('');
+
+  // The top bar and sidebar stay in view while scrolling a long list
+  await cards().last().scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, 2000);
+  await page.waitForTimeout(300);
+  const pos = await page.evaluate(() => {
+    const top = s => document.querySelector(s).getBoundingClientRect();
+    return { root: top('#spl-library-root').top, bar: top('.sl-topbar'), side: top('.sl-sidebar') };
+  });
+  check(pos.root < -50, 'the page scrolled past the top of the app');
+  check(pos.bar.top >= 0 && pos.bar.top <= 60, 'the top bar stays at the top while scrolling');
+  check(pos.side.top >= pos.bar.bottom && pos.side.top <= pos.bar.bottom + 40, 'the sidebar stays in view below the top bar');
+  await snap('light-sticky');
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  // Cancel asks before throwing away a draft
+  await page.click('.sl-topbar .sl-btn-primary');
+  await page.click('.sl-modal .sl-btn-cancel');
+  check(!(await page.isVisible('.sl-modal')), 'Cancel closes an untouched form straight away');
+  await page.click('.sl-topbar .sl-btn-primary');
+  await page.fill('.sl-modal .sl-input >> nth=0', 'draft title');
+  await page.click('.sl-modal .sl-btn-cancel');
+  check(await page.isVisible('.sl-modal .sl-discard'), 'Cancel with changes asks before discarding');
+  await snap('light-discard');
+  await page.click('.sl-discard-keep');
+  check(await page.inputValue('.sl-modal .sl-input >> nth=0') === 'draft title', 'Keep editing returns to the draft');
+  await page.click('.sl-modal .sl-btn-cancel');
+  await page.click('.sl-btn-discard');
+  check(!(await page.isVisible('.sl-modal')), 'Discard closes the form');
+
   // The feature checks below use a temporary query that is deleted at the end,
   // so the library, its usage counts and favorites are left as they were.
   const token = `uitest${Date.now()}`;
@@ -101,7 +158,6 @@ function check(ok, what) {
   const key = await card.getAttribute('data-key');
   const isOpen = async (c = card) => /\bopen\b/.test(await c.getAttribute('class'));
   const expand = async () => { if (!(await isOpen())) await card.locator('.sl-card-header').click(); };
-  const hash = () => decodeURIComponent(new URL(page.url()).hash);
 
   // Syntax highlighting and search-match highlighting
   await expand();
