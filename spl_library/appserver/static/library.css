@@ -1,0 +1,389 @@
+/* ════════════════════════════════════════════════════════════════
+   SPL Library — stylesheet
+   ════════════════════════════════════════════════════════════════ */
+
+/* Hide Splunk dashboard chrome inside our panel for a clean canvas */
+.dashboard-body .dashboard-panel .panel-element-row { background: transparent; }
+.dashboard-panel:has(#spl-library-root) { background: transparent; }
+/* The app draws its own title bar, so Splunk's dashboard title is redundant */
+.dashboard:has(#spl-library-root) .dashboard-header { display: none; }
+/* Let the page around the panel follow the app's light theme */
+.dashboard-body:has(#spl-library-root[data-theme="light"]) { background: #e9eef4; }
+#spl-library-root { margin: -10px; }
+
+#spl-library-root, #spl-library-root * { box-sizing: border-box; }
+
+/* ── Theme tokens ────────────────────────────────────────────── */
+/* Dark is the default palette; [data-theme="light"] overrides it. */
+#spl-library-root {
+  --sl-bg: #070c14;
+  --sl-bg-topbar: #0d1117;
+  --sl-bg-card: #111827;
+  --sl-bg-card-hover: #131d2e;
+  --sl-bg-input: #0a0f1a;
+  --sl-bg-chip: #1e2a3a;
+  --sl-bg-cat-hover: #1a2536;
+  --sl-bg-count: #1e293b;
+  --sl-bg-count-active: #24344a;
+  --sl-bg-footer: #0d1117;
+  --sl-bg-code: #0a0f1a;
+  --sl-bg-modal: #111827;
+  --sl-bg-cancel: #1e2030;
+  --sl-bg-error: #2a1020;
+  --sl-bg-overlay: rgba(0,0,0,.6);
+
+  --sl-border: #1e293b;
+  --sl-border-focus: #4f8ef7;
+
+  --sl-text-primary: #e2e8f0;
+  --sl-text-secondary: #8a99ad;
+  --sl-text-tertiary: #a3b1c4;
+  --sl-text-muted: #7b8a9f;
+  --sl-text-dim: #6e7d92;
+  --sl-text-hover: #cbd5e1;
+
+  --sl-code-text: #93c5fd;
+
+  --sl-primary-bg: #1e3a5f;
+  --sl-primary-bg-hover: #24466e;
+  --sl-primary-text: #7eb8f7;
+  --sl-primary-text-hover: #9cc8ff;
+  --sl-primary-border: rgba(79,142,247,.27);
+  --sl-cta-bg: #2f6fe0;
+  --sl-cta-bg-hover: #3d7df0;
+  --sl-cta-text: #ffffff;
+
+  --sl-success-bg: #1a3a28;
+  --sl-success-bg-hover: #1f4630;
+  --sl-success-text: #3ecf8e;
+  --sl-success-text-hover: #5fe0a8;
+  --sl-success-border: rgba(62,207,142,.2);
+
+  --sl-danger-bg: #2a1020;
+  --sl-danger-text: #f87171;
+  --sl-danger-border: rgba(248,113,113,.13);
+}
+#spl-library-root[data-theme="light"] {
+  --sl-bg: #f1f5f9;
+  --sl-bg-topbar: #ffffff;
+  --sl-bg-card: #ffffff;
+  --sl-bg-card-hover: #f8fafc;
+  --sl-bg-input: #ffffff;
+  --sl-bg-chip: #e6edf9;
+  --sl-bg-cat-hover: #eef2f7;
+  --sl-bg-count: #e2e8f0;
+  --sl-bg-count-active: #dbe4f3;
+  --sl-bg-footer: #f8fafc;
+  --sl-bg-code: #f8fafc;
+  --sl-bg-modal: #ffffff;
+  --sl-bg-cancel: #eef1f5;
+  --sl-bg-error: #fef2f2;
+  --sl-bg-overlay: rgba(15,23,42,.45);
+
+  --sl-border: #e2e8f0;
+  --sl-border-focus: #2563eb;
+
+  --sl-text-primary: #0f172a;
+  --sl-text-secondary: #475569;
+  --sl-text-tertiary: #334155;
+  --sl-text-muted: #64748b;
+  --sl-text-dim: #6b7a8f;
+  --sl-text-hover: #0f172a;
+
+  --sl-code-text: #1d4ed8;
+
+  --sl-primary-bg: #dbe7fb;
+  --sl-primary-bg-hover: #c7dbfb;
+  --sl-primary-text: #1d4ed8;
+  --sl-primary-text-hover: #1e40af;
+  --sl-primary-border: rgba(37,99,235,.25);
+  --sl-cta-bg: #2563eb;
+  --sl-cta-bg-hover: #1d4ed8;
+  --sl-cta-text: #ffffff;
+
+  --sl-success-bg: #dcfbea;
+  --sl-success-bg-hover: #c8f3dc;
+  --sl-success-text: #047857;
+  --sl-success-text-hover: #036c4c;
+  --sl-success-border: rgba(4,120,87,.2);
+
+  --sl-danger-bg: #fee2e2;
+  --sl-danger-text: #dc2626;
+  --sl-danger-border: rgba(220,38,38,.15);
+}
+
+#spl-library-root {
+  font-family: "Splunk Platform Sans", "Inter", "Segoe UI", system-ui, sans-serif;
+  background: var(--sl-bg);
+  color: var(--sl-text-primary);
+  min-height: 80vh;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: background .15s, color .15s;
+}
+
+.sl-app { container: sl / inline-size; }
+
+.sl-boot { color: var(--sl-text-muted); padding: 60px; text-align: center; font-size: 14px; }
+
+/* ── Top bar ─────────────────────────────────────────────────── */
+.sl-topbar {
+  background: var(--sl-bg-topbar);
+  border-bottom: 1px solid var(--sl-border);
+  padding: 0 24px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.sl-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 700; font-size: 17px; color: var(--sl-text-primary);
+  letter-spacing: -0.02em;
+}
+.sl-spacer { flex: 1; }
+.sl-search-wrap { position: relative; width: 340px; min-width: 0; }
+.sl-search-icon {
+  position: absolute; left: 10px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--sl-text-muted); pointer-events: none; display: flex;
+}
+.sl-search-kbd {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font: 11px/1 "Splunk Platform Mono", Menlo, Consolas, monospace;
+  color: var(--sl-text-muted); border: 1px solid var(--sl-border);
+  border-radius: 4px; padding: 2px 6px; pointer-events: none;
+}
+.sl-search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--sl-text-muted);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px;
+  border-radius: 4px; display: none;
+}
+.sl-search-clear:hover { color: var(--sl-text-primary); background: var(--sl-bg-cat-hover); }
+.sl-search-wrap.has-value .sl-search-clear { display: block; }
+.sl-search-wrap.has-value .sl-search-kbd { display: none; }
+.sl-search-input {
+  width: 100%; background: var(--sl-bg-input) !important;
+  border: 1px solid var(--sl-border) !important; border-radius: 7px;
+  color: var(--sl-text-primary) !important; padding: 8px 34px 8px 32px !important;
+  font-size: 13px; outline: none; font-family: inherit;
+  height: auto !important; box-shadow: none !important;
+  transition: border-color .2s;
+}
+.sl-search-input:focus { border-color: var(--sl-border-focus) !important; }
+.sl-btn-primary {
+  background: var(--sl-cta-bg); color: var(--sl-cta-text);
+  border: 1px solid transparent;
+  border-radius: 7px; padding: 8px 16px;
+  cursor: pointer; font-size: 13px; font-weight: 600;
+  white-space: nowrap; font-family: inherit;
+  transition: background .15s;
+}
+.sl-btn-primary:hover { background: var(--sl-cta-bg-hover); color: var(--sl-cta-text); }
+
+.sl-btn-theme {
+  background: var(--sl-bg-chip); color: var(--sl-text-tertiary);
+  border: 1px solid var(--sl-border); border-radius: 7px;
+  width: 34px; height: 34px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 15px; line-height: 1;
+  transition: background .15s, color .15s;
+}
+.sl-btn-theme:hover { background: var(--sl-bg-cat-hover); color: var(--sl-text-primary); }
+
+/* ── Layout ──────────────────────────────────────────────────── */
+.sl-layout { display: flex; width: 100%; padding: 24px; gap: 24px; box-sizing: border-box; }
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.sl-sidebar { width: 185px; flex-shrink: 0; }
+.sl-side-heading {
+  color: var(--sl-text-secondary); font-size: 11px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.sl-cat-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; background: none; border: none; border-radius: 6px;
+  padding: 7px 10px; color: var(--sl-text-tertiary); cursor: pointer;
+  font-size: 13px; margin-bottom: 2px; font-family: inherit;
+  transition: background .15s, color .15s; text-align: left;
+}
+.sl-cat-btn:hover { background: var(--sl-bg-cat-hover); color: var(--sl-text-hover); }
+.sl-cat-btn.active { background: var(--sl-bg-chip); font-weight: 600; color: var(--sl-primary-text); }
+.sl-cat-left { display: flex; align-items: center; gap: 7px; }
+.sl-cat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.sl-cat-count {
+  background: var(--sl-bg-count); font-size: 11px;
+  border-radius: 10px; padding: 1px 7px; color: var(--sl-text-tertiary);
+}
+.sl-cat-btn.active .sl-cat-count { background: var(--sl-bg-count-active); color: var(--sl-text-hover); }
+.sl-side-divider { border: none; border-top: 1px solid var(--sl-border); margin: 16px 0; }
+.sl-side-meta { color: var(--sl-text-secondary); font-size: 12px; line-height: 1.6; margin: 0; }
+.sl-side-meta small { color: var(--sl-text-muted); font-size: 11px; }
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.sl-main { flex: 1; min-width: 0; }
+.sl-results-info { color: var(--sl-text-dim); font-size: 12px; margin: 0 0 10px; }
+.sl-card {
+  background: var(--sl-bg-card); border: 1px solid var(--sl-border);
+  border-radius: 8px; margin-bottom: 10px;
+  overflow: hidden; transition: box-shadow .2s, background .15s, border-color .15s;
+}
+.sl-card-header {
+  padding: 14px 18px; cursor: pointer;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.sl-card-header:hover { background: var(--sl-bg-card-hover); }
+.sl-card-header:focus-visible { outline: 2px solid var(--sl-border-focus); outline-offset: -2px; }
+.sl-card-content { flex: 1; min-width: 0; }
+.sl-title-row {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 4px;
+}
+.sl-card-title { color: var(--sl-text-primary); font-weight: 600; font-size: 15px; }
+.sl-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; padding: 2px 10px;
+  border-radius: 20px; letter-spacing: .04em;
+}
+.sl-badge-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.sl-card-desc { color: var(--sl-text-secondary); font-size: 13px; line-height: 1.5; margin: 0; }
+.sl-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.sl-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--sl-bg-chip); color: var(--sl-primary-text); font-size: 11px;
+  padding: 2px 8px; border-radius: 4px;
+  font-family: "Splunk Platform Mono", Menlo, Consolas, monospace;
+}
+.sl-tag-rm {
+  background: none; border: none; color: var(--sl-primary-text);
+  cursor: pointer; font-size: 13px; padding: 0; line-height: 1;
+}
+.sl-chevron {
+  color: var(--sl-text-muted); flex-shrink: 0; display: flex; margin-top: 2px;
+  transition: transform .2s, color .15s;
+}
+.sl-card-header:hover .sl-chevron { color: var(--sl-text-primary); }
+.sl-card.open .sl-chevron { transform: rotate(180deg); }
+.sl-card-preview {
+  margin-top: 10px; padding: 6px 10px; border-radius: 6px;
+  background: var(--sl-bg-code); color: var(--sl-code-text);
+  font: 12px/1.5 "Splunk Platform Mono", Menlo, Consolas, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.sl-card-expanded { border-top: 1px solid var(--sl-border); }
+#spl-library-root .sl-spl {
+  border: 0; border-radius: 0; box-shadow: none;
+  margin: 0; padding: 14px 18px;
+  background: var(--sl-bg-code); color: var(--sl-code-text);
+  font-family: "Splunk Platform Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 1.7;
+  overflow-x: auto; white-space: pre;
+}
+.sl-card-footer {
+  padding: 10px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-top: 1px solid var(--sl-border); background: var(--sl-bg-footer);
+}
+.sl-meta-text {
+  color: var(--sl-text-dim); font-size: 12px;
+  font-family: "Splunk Platform Mono", Menlo, Consolas, monospace;
+}
+.sl-actions { display: flex; gap: 8px; }
+.sl-btn-sm {
+  border-radius: 6px; padding: 4px 12px; font-size: 12px;
+  cursor: pointer; font-family: inherit; transition: all .2s;
+}
+.sl-btn-copy { background: var(--sl-bg-chip); color: var(--sl-primary-text); border: 1px solid var(--sl-primary-border); }
+.sl-btn-copy.copied { background: var(--sl-success-bg); color: var(--sl-success-text); border-color: var(--sl-success-border); }
+.sl-btn-open { background: var(--sl-success-bg); color: var(--sl-success-text); border: 1px solid var(--sl-success-border); text-decoration: none; display: inline-flex; align-items: center; }
+.sl-btn-open:hover { background: var(--sl-success-bg-hover); color: var(--sl-success-text-hover); text-decoration: none; }
+.sl-btn-edit { background: var(--sl-bg-chip); color: var(--sl-text-tertiary); border: 1px solid var(--sl-border); }
+.sl-btn-delete { background: var(--sl-bg-error); color: var(--sl-danger-text); border: 1px solid var(--sl-danger-border); }
+
+/* ── Empty / error states ────────────────────────────────────── */
+.sl-empty { text-align: center; padding: 80px 20px; color: var(--sl-text-dim); }
+.sl-empty-icon { font-size: 40px; margin-bottom: 12px; }
+.sl-empty p { font-size: 15px; color: var(--sl-text-muted); margin: 0 0 6px; }
+.sl-empty a { color: var(--sl-primary-text); cursor: pointer; }
+.sl-error-banner {
+  background: var(--sl-bg-error); border: 1px solid var(--sl-danger-border);
+  color: var(--sl-danger-text); border-radius: 8px; padding: 12px 16px;
+  font-size: 13px; margin-bottom: 14px;
+}
+
+/* ── Modal ───────────────────────────────────────────────────── */
+.sl-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--sl-bg-overlay);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 16px;
+}
+.sl-modal {
+  background: var(--sl-bg-modal); border: 1px solid var(--sl-border);
+  border-radius: 12px; padding: 24px;
+  width: 100%; max-width: 640px;
+  max-height: 90vh; overflow-y: auto;
+}
+.sl-modal h2 { color: var(--sl-text-primary); font-size: 18px; font-weight: 700; margin: 0 0 20px; }
+.sl-label { color: var(--sl-text-secondary); font-size: 12px; display: block; margin-bottom: 4px; }
+.sl-input, .sl-select, .sl-textarea {
+  width: 100%; background: var(--sl-bg-input) !important;
+  border: 1px solid var(--sl-border) !important; border-radius: 6px;
+  color: var(--sl-text-primary) !important; padding: 8px 12px !important;
+  font-size: 13px; outline: none; font-family: inherit;
+  margin-bottom: 14px; height: auto !important;
+  box-shadow: none !important; transition: border-color .2s;
+}
+.sl-input:focus, .sl-select:focus, .sl-textarea:focus { border-color: var(--sl-border-focus) !important; }
+.sl-select { cursor: pointer; }
+.sl-textarea {
+  resize: vertical; line-height: 1.7;
+  font-family: "Splunk Platform Mono", Menlo, Consolas, monospace;
+  min-height: 130px;
+}
+.sl-tagrow { display: flex; gap: 8px; margin-bottom: 8px; }
+.sl-tagrow .sl-input { margin-bottom: 0; flex: 1; }
+.sl-btn-tagadd {
+  background: var(--sl-bg-chip); color: var(--sl-primary-text);
+  border: 1px solid var(--sl-primary-border);
+  border-radius: 6px; padding: 8px 14px; cursor: pointer;
+  font-size: 13px; font-family: inherit; white-space: nowrap;
+}
+.sl-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.sl-btn-cancel {
+  background: var(--sl-bg-cancel); color: var(--sl-text-secondary); border: 1px solid var(--sl-border);
+  border-radius: 7px; padding: 8px 20px; cursor: pointer;
+  font-size: 14px; font-family: inherit;
+}
+.sl-form-error { color: var(--sl-danger-text); font-size: 12px; margin: 0 0 10px; }
+
+#spl-library-root button:focus-visible,
+#spl-library-root a:focus-visible { outline: 2px solid var(--sl-border-focus); outline-offset: 2px; }
+
+/* Narrow panels: categories become a horizontal chip strip above the list.
+   Container queries track the panel's real width, not the viewport's. */
+@container sl (max-width: 760px) {
+  .sl-topbar { padding: 0 16px; gap: 10px; }
+  .sl-spacer { display: none; }
+  .sl-search-wrap { flex: 1; width: auto; }
+  .sl-search-kbd { display: none; }
+  .sl-layout { flex-direction: column; padding: 16px; gap: 14px; }
+  .sl-sidebar {
+    width: 100%; display: flex; gap: 6px;
+    overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin;
+  }
+  .sl-side-heading, .sl-side-divider, .sl-side-meta { display: none; }
+  .sl-cat-btn {
+    width: auto; flex-shrink: 0; gap: 8px; margin: 0;
+    border: 1px solid var(--sl-border); border-radius: 20px; padding: 5px 12px;
+    white-space: nowrap;
+  }
+}
+@container sl (max-width: 480px) {
+  .sl-logo-text { display: none; }
+  .sl-card-footer { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .sl-actions { flex-wrap: wrap; }
+}
