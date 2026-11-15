@@ -16,10 +16,17 @@ private_classic check sets (0 failures; every build is checked):
 
 - Card-based interface with light and dark themes (toggle in the top bar)
 - Layout adapts to the panel width; categories become a chip strip on narrow panels
-- Full-text search across titles, descriptions, tags, and SPL
+- Full-text search across titles, descriptions, tags, and SPL, with matches
+  highlighted on the cards
 - Category filters with live counts (Security, Network, Application,
   Database, Performance, Other)
-- Each card previews the first line of its SPL; expand it to view the full query
+- Each card previews its SPL (the matching line while searching); expand it to
+  view the full query with syntax highlighting
+- Star queries to collect them under Starred; stars are saved per user
+- Sort by newest, title, or most used (each Copy SPL and Open in Search click
+  counts as a use)
+- Shareable links: the address bar always reflects the current search, category,
+  sort and open query, and "Copy link" on a card copies a link that opens it
 - Keyboard friendly: press / to search, Esc to clear, Enter/Space to expand a card,
   Ctrl/Cmd+Enter to save in the query form
 - Copy SPL to clipboard with one click
@@ -30,7 +37,9 @@ private_classic check sets (0 failures; every build is checked):
 
 ## Storage
 
-Queries live in the spl_library_queries KV Store collection, also exposed
+Queries live in the spl_library_queries KV Store collection. Stars are kept
+in spl_library_favorites (one record per user) and use counts in
+spl_library_usage (one record per query). The queries collection is also exposed
 as the spl_library_lookup lookup so you can use the library in SPL:
 
     | inputlookup spl_library_lookup
