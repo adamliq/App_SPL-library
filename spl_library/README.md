@@ -18,9 +18,14 @@ private_classic check sets (0 failures; every build is checked):
 - Layout adapts to the panel width; categories become a chip strip on narrow panels
 - Full-text search across titles, descriptions, tags, and SPL, with matches
   highlighted on the cards
-- Category filters with live counts (Security, Network, Application,
-  Database, Performance, Other); click any tag on a card to filter by that tag
+- Category filters with live counts; click any tag on a card to filter by that tag
+- Admins can add, rename, recolor, reorder and delete categories (Manage, next
+  to the Category heading). Renaming carries the queries along; deleting a
+  category moves its queries to Other, which cannot be removed
+- Card view or a compact one-line-per-query view (remembered per browser)
 - The top bar and category list stay in view while scrolling
+- Placeholder cards while loading; if Splunk's KV Store is still starting, the
+  app retries for about a minute, then offers Try again
 - Each card previews its SPL (the matching line while searching); expand it to
   view the full query with syntax highlighting (long lines wrap; turn off
   "Wrap lines" to scroll them instead, remembered per browser)
@@ -42,7 +47,9 @@ private_classic check sets (0 failures; every build is checked):
 
 Queries live in the spl_library_queries KV Store collection. Stars are kept
 in spl_library_favorites (one record per user) and use counts in
-spl_library_usage (one record per query). The queries collection is also exposed
+spl_library_usage (one record per query), and categories in
+spl_library_categories (seeded with the six defaults on first load). The
+queries collection is also exposed
 as the spl_library_lookup lookup so you can use the library in SPL:
 
     | inputlookup spl_library_lookup
@@ -64,4 +71,7 @@ All users can read and add queries. To restrict who can write, edit the
 [collections] stanza in metadata/default.meta.
 
 The app's views, nav and lookup can be changed by admin, power and sc_admin
-(the Splunk Cloud administrator role).
+(the Splunk Cloud administrator role). The same roles can manage categories;
+Splunk enforces this through the [collections/spl_library_categories] stanza
+in metadata/default.meta, and the Manage button only appears for users who can
+write that collection.

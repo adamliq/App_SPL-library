@@ -39,6 +39,11 @@ function check(ok, what) {
   await page.fill('#password', PASSWORD);
   await Promise.all([page.waitForNavigation(), page.click('input[type=submit]')]);
 
+  // Splunk caches app static files under a versioned URL and can keep serving an
+  // old library.js; bumping the version makes it serve the files on disk
+  await page.goto(`${BASE}/en-US/_bump`);
+  await Promise.all([page.waitForNavigation(), page.click('input[type=submit]')]);
+
   // On a fresh Splunk the KV Store may still be starting, so retry the first load
   let loaded = false;
   for (let attempt = 0; attempt < 6 && !loaded; attempt++) {
@@ -123,6 +128,21 @@ function check(ok, what) {
   check(pos.side.top >= pos.bar.bottom && pos.side.top <= pos.bar.bottom + 40, 'the sidebar stays in view below the top bar');
   await snap('light-sticky');
   await page.evaluate(() => window.scrollTo(0, 0));
+
+  // Compact view: collapsed queries become one-line rows; the choice is remembered
+  await page.click('.sl-view-btn[data-view="compact"]');
+  await page.waitForTimeout(200);
+  const rowHeights = await cards().evaluateAll(cs =>
+    cs.filter(c => !c.classList.contains('open')).map(c => c.getBoundingClientRect().height));
+  check(rowHeights.length > 0 && rowHeights.every(h => h < 50), 'compact view shows one-line rows');
+  check(await page.locator('#sl-main .sl-card:not(.open) .sl-card-desc').first().isHidden(),
+    'compact rows hide the description');
+  await snap('light-compact');
+  await page.reload();
+  await cards().first().waitFor({ timeout: 30000 });
+  check(await page.getAttribute('.sl-view-btn[data-view="compact"]', 'aria-pressed') === 'true',
+    'compact view is remembered after a reload');
+  await page.click('.sl-view-btn[data-view="cards"]');
 
   // Cancel asks before throwing away a draft
   await page.click('.sl-topbar .sl-btn-primary');
@@ -245,6 +265,146 @@ function check(ok, what) {
   const fav = await kvGet('spl_library_favorites', USER);
   check(!(fav.body && (fav.body.keys || []).includes(key)), 'deleting a query removes it from favorites');
   check(await starred() === starredBefore, 'Starred count is back to where it started');
+
+  // Loading: placeholders while waiting, and automatic retries while the KV Store starts
+  {
+    const queriesGet = /storage\/collections\/data\/spl_library_queries\?output_mode/;
+    const tab = await ctx.newPage();
+    let refused = 0;
+    await tab.route(queriesGet, route => {
+      if (route.request().method() === 'GET' && refused < 2) {
+        refused++;
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+      }
+      return route.continue();
+    });
+    await tab.goto(`${BASE}/en-US/app/spl_library/library`);
+    check(await tab.locator('.sl-sk-card').first().waitFor({ timeout: 30000 }).then(() => true, () => false),
+      'placeholder cards show while the library loads');
+    check(await tab.locator('.sl-retry-notice').waitFor({ timeout: 15000 }).then(() => true, () => false),
+      'a temporary KV Store error shows a retry notice');
+    await tab.screenshot({ path: path.join(OUT, 'loading-retry.png') });
+    check(await tab.locator('.sl-card').first().waitFor({ timeout: 30000 }).then(() => true, () => false) && refused === 2,
+      'the library loads by itself once the KV Store answers');
+    await tab.unroute(queriesGet);
+    let blocked = true;
+    await tab.route(queriesGet, route => (blocked && route.request().method() === 'GET')
+      ? route.fulfill({ status: 403, contentType: 'application/json', body: '{}' }) : route.continue());
+    await tab.reload();
+    check(await tab.locator('.sl-btn-retry').waitFor({ timeout: 30000 }).then(() => true, () => false),
+      'a permanent error offers Try again instead of retrying');
+    blocked = false;
+    await tab.click('.sl-btn-retry');
+    check(await tab.locator('.sl-card').first().waitFor({ timeout: 30000 }).then(() => true, () => false),
+      'Try again reloads the library');
+    await tab.close();
+  }
+
+  // Categories: admins can add, recolor, rename, reorder and delete them
+  const t = Date.now();
+  const cat1 = `CLI ${t}`, cat2 = `Ops ${t}`;
+  const catNames = () => page.$$eval('.sl-cat-name', els => els.map(e => e.value));
+  const sidebarCats = () => page.locator('.sl-cat-btn .sl-cat-left').allTextContents();
+  const saveCats = async () => { await page.click('.sl-cat-modal .sl-btn-primary'); await page.waitForTimeout(800); };
+  check(await page.isVisible('.sl-side-manage'), 'admins see the Manage categories button');
+  await page.click('.sl-side-manage');
+  await page.click('.sl-cat-add');
+  let names = await catNames();
+  const newRow = names.length - 2;
+  await page.fill(`.sl-cat-row >> nth=${newRow} >> .sl-cat-name`, 'security');
+  await saveCats();
+  check(/two categories/.test(await page.textContent('.sl-cat-modal .sl-form-error') || ''),
+    'a duplicate category name is refused');
+  await page.fill(`.sl-cat-row >> nth=${newRow} >> .sl-cat-name`, cat1);
+  await page.selectOption(`.sl-cat-row >> nth=${newRow} >> .sl-cat-color`, 'pink');
+  await page.screenshot({ path: path.join(OUT, 'light-categories.png') });
+  await saveCats();
+  check(!(await page.isVisible('.sl-cat-modal')) && (await sidebarCats()).includes(cat1),
+    'a new category appears in the sidebar');
+
+  // Put a temporary query in it
+  const catQuery = `Category test ${t}`;
+  await page.click('.sl-topbar .sl-btn-primary');
+  await page.fill('.sl-modal .sl-input >> nth=0', catQuery);
+  await page.selectOption('.sl-modal .sl-select', cat1);
+  await page.fill('.sl-modal .sl-textarea', 'index=_internal | head 1');
+  await page.click('.sl-modal .sl-btn-primary');
+  const catCard = cards().filter({ hasText: catQuery });
+  await catCard.waitFor({ timeout: 15000 });
+  const catKey = await catCard.getAttribute('data-key');
+  const storedCategory = () => page.evaluate(async k => {
+    const r = await fetch(`/en-US/splunkd/__raw/servicesNS/nobody/spl_library/storage/collections/data/spl_library_queries/${k}?output_mode=json`);
+    return (await r.json()).category;
+  }, catKey);
+  check((await catCard.locator('.sl-badge').textContent()) === cat1, 'queries can be filed under the new category');
+
+  // Rename it and move it up one place
+  await page.click('.sl-side-manage');
+  names = await catNames();
+  let idx = names.indexOf(cat1);
+  await page.fill(`.sl-cat-row >> nth=${idx} >> .sl-cat-name`, cat2);
+  await page.click(`.sl-cat-row >> nth=${idx} >> .sl-cat-move >> nth=0`);
+  await saveCats();
+  const order = await sidebarCats();
+  check(order.includes(cat2) && !order.includes(cat1), 'renaming a category updates the sidebar');
+  check(order.indexOf(cat2) === idx + 2 - 1, 'moving a category up changes the sidebar order');
+  check((await catCard.locator('.sl-badge').textContent()) === cat2 && await storedCategory() === cat2,
+    'renaming a category moves its queries along with it');
+  await page.reload();
+  await catCard.waitFor({ timeout: 30000 });
+  check((await sidebarCats()).includes(cat2), 'category changes are saved');
+
+  // Delete it: its query falls back to Other
+  await page.click('.sl-side-manage');
+  idx = (await catNames()).indexOf(cat2);
+  await page.click(`.sl-cat-row >> nth=${idx} >> .sl-cat-delete`);
+  await saveCats();
+  check(!(await sidebarCats()).includes(cat2), 'a deleted category leaves the sidebar');
+  check((await catCard.locator('.sl-badge').textContent()) === 'Other' && await storedCategory() === 'Other',
+    'queries in a deleted category move to Other');
+  check(await page.isDisabled('.sl-side-manage') === false, 'Manage stays available');
+  await page.click('.sl-side-manage');
+  const otherRow = (await catNames()).indexOf('Other');
+  check(await page.isDisabled(`.sl-cat-row >> nth=${otherRow} >> .sl-cat-delete`), 'Other cannot be deleted');
+  await page.click('.sl-cat-modal .sl-btn-cancel');
+  if (!/\bopen\b/.test(await catCard.getAttribute('class'))) await catCard.locator('.sl-card-header').click();
+  await catCard.locator('.sl-btn-delete').click();
+  await catCard.waitFor({ state: 'detached', timeout: 15000 });
+
+  // Users without write access to categories never see Manage, and Splunk refuses their writes
+  const user = `uitest_${t}`, userPw = 'UiTest-Passw0rd!';
+  const rest = (method, url, form) => page.evaluate(async ([method, url, form]) => {
+    const csrf = (document.cookie.match(/splunkweb_csrf_token_[^=]*=([^;]+)/) || [])[1] || '';
+    const r = await fetch(url, { method, body: form || undefined, headers: {
+      'X-Splunk-Form-Key': decodeURIComponent(csrf), 'X-Requested-With': 'XMLHttpRequest',
+      'Content-Type': 'application/x-www-form-urlencoded' } });
+    return r.status;
+  }, [method, url, form]);
+  const created = await rest('POST', '/en-US/splunkd/__raw/services/authentication/users',
+    `name=${user}&password=${encodeURIComponent(userPw)}&roles=user&force-change-pass=0`);
+  check(created === 201, 'created a temporary non-admin user');
+  {
+    const userCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const up = await userCtx.newPage();
+    await up.goto(`${BASE}/en-US/account/login`);
+    await up.fill('#username', user);
+    await up.fill('#password', userPw);
+    await Promise.all([up.waitForNavigation(), up.click('input[type=submit]')]);
+    await up.goto(`${BASE}/en-US/app/spl_library/library`);
+    const ok = await up.locator('.sl-card').first().waitFor({ timeout: 60000 }).then(() => true, () => false);
+    check(ok && !(await up.isVisible('.sl-side-manage')), 'users without write access do not see Manage');
+    const status = await up.evaluate(async () => {
+      const csrf = (document.cookie.match(/splunkweb_csrf_token_[^=]*=([^;]+)/) || [])[1] || '';
+      const r = await fetch('/en-US/splunkd/__raw/servicesNS/nobody/spl_library/storage/collections/data/spl_library_categories/batch_save?output_mode=json', {
+        method: 'POST', body: JSON.stringify([{ _key: 'other', name: 'Hacked', color: 'red', order: 0 }]),
+        headers: { 'Content-Type': 'application/json', 'X-Splunk-Form-Key': decodeURIComponent(csrf), 'X-Requested-With': 'XMLHttpRequest' } });
+      return r.status;
+    });
+    check(status === 403, `Splunk refuses category changes from those users (HTTP ${status})`);
+    await userCtx.close();
+  }
+  check(await rest('DELETE', `/en-US/splunkd/__raw/services/authentication/users/${user}`) === 200,
+    'removed the temporary user');
 
   await page.click('.sl-btn-theme');
   check(pageErrors.length === 0, 'no JavaScript errors' + (pageErrors.length ? ': ' + pageErrors.join('; ') : ''));
