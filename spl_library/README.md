@@ -19,9 +19,11 @@ private_classic check sets (0 failures; every build is checked):
 - Full-text search across titles, descriptions, tags, and SPL, with matches
   highlighted on the cards
 - Category filters with live counts (Security, Network, Application,
-  Database, Performance, Other)
+  Database, Performance, Other); click any tag on a card to filter by that tag
+- The top bar and category list stay in view while scrolling
 - Each card previews its SPL (the matching line while searching); expand it to
-  view the full query with syntax highlighting
+  view the full query with syntax highlighting (long lines wrap; turn off
+  "Wrap lines" to scroll them instead, remembered per browser)
 - Star queries to collect them under Starred; stars are saved per user
 - Sort by newest, title, or most used (each Copy SPL and Open in Search click
   counts as a use)
@@ -31,7 +33,8 @@ private_classic check sets (0 failures; every build is checked):
   Ctrl/Cmd+Enter to save in the query form
 - Copy SPL to clipboard with one click
 - "Open in Search" — runs the saved query directly in the Search app
-- Add / edit / delete queries via a modal form with tag management
+- Add / edit / delete queries via a modal form with tag management; Cancel
+  asks before discarding unsaved changes
 - Auto-seeds example queries on first load (into an empty collection only)
 - Records author and created/updated dates per query
 

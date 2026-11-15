@@ -55,6 +55,14 @@ require([
     try { window.localStorage.setItem(THEME_KEY, t); } catch (e) {}
   }
 
+  var WRAP_KEY = 'spl_library_wrap';
+  function loadWrap() {
+    try { return window.localStorage.getItem(WRAP_KEY) !== 'off'; } catch (e) { return true; }
+  }
+  function saveWrap(on) {
+    try { window.localStorage.setItem(WRAP_KEY, on ? 'on' : 'off'); } catch (e) {}
+  }
+
   /* ── Splunk plumbing ──────────────────────────────────────── */
   function localePrefix() {
     // e.g. /en-US/app/spl_library/library  ->  /en-US
@@ -93,9 +101,9 @@ require([
 
   /* ── State ────────────────────────────────────────────────── */
   var state = {
-    queries: [], search: '', filterCat: 'All', sort: 'newest',
-    favorites: [], usage: {},
-    modal: null, form: null, tagInput: '',
+    queries: [], search: '', filterCat: 'All', filterTag: '', sort: 'newest',
+    favorites: [], usage: {}, wrap: loadWrap(),
+    modal: null, form: null, tagInput: '', formSnapshot: null, confirmDiscard: false,
     expanded: {}, linkKey: null, pendingOpen: null,
     loading: true, error: null, notice: null, formError: null,
     theme: loadTheme()
@@ -109,6 +117,7 @@ require([
     var cat = p.get('cat');
     state.filterCat = (cat === STARRED || CATEGORIES.indexOf(cat) !== -1) ? cat : 'All';
     state.search = p.get('q') || '';
+    state.filterTag = p.get('tag') || '';
     state.sort = SORTS.hasOwnProperty(p.get('sort')) ? p.get('sort') : 'newest';
     state.pendingOpen = p.get('open') || null;
   }
@@ -117,6 +126,7 @@ require([
     var p = new URLSearchParams();
     if (state.search) p.set('q', state.search);
     if (state.filterCat !== 'All') p.set('cat', state.filterCat);
+    if (state.filterTag) p.set('tag', state.filterTag);
     if (state.sort !== 'newest') p.set('sort', state.sort);
     if (state.linkKey && state.expanded[state.linkKey]) p.set('open', state.linkKey);
     var hash = p.toString();
@@ -142,6 +152,7 @@ require([
     }
     if (!filtered().some(function (q) { return q._key === key; })) {
       state.filterCat = 'All';
+      state.filterTag = '';
       state.search = '';
     }
     state.expanded[key] = true;
@@ -356,8 +367,10 @@ require([
     return state.queries.filter(function (q) {
       var catOk = state.filterCat === 'All' ||
         (state.filterCat === STARRED ? isFavorite(q._key) : q.category === state.filterCat);
+      var tag = state.filterTag.toLowerCase();
+      var tagOk = !tag || tagsOf(q).some(function (t) { return t.toLowerCase() === tag; });
       var hay = [q.title, q.description, q.spl, q.tags].join(' ').toLowerCase();
-      return catOk && (!s || hay.indexOf(s) !== -1);
+      return catOk && tagOk && (!s || hay.indexOf(s) !== -1);
     }).sort(order);
   }
 
@@ -697,13 +710,39 @@ require([
 
     var rows = filtered();
     var toolbar = el('div', 'sl-toolbar');
-    var filteredView = state.search || state.filterCat !== 'All';
+    var filteredView = state.search || state.filterCat !== 'All' || state.filterTag;
     var noun = filteredView ? (rows.length === 1 ? 'result' : 'results')
                             : (rows.length === 1 ? 'query' : 'queries');
-    toolbar.appendChild(el('p', 'sl-results-info',
+    var left = el('div', 'sl-toolbar-left');
+    left.appendChild(el('p', 'sl-results-info',
       rows.length + ' ' + noun +
       (state.filterCat !== 'All' ? ' in ' + state.filterCat : '') +
       (state.search ? ' matching "' + state.search + '"' : '')));
+    if (state.filterTag) {
+      var chip = el('button', 'sl-tag-filter');
+      chip.type = 'button';
+      chip.title = 'Stop filtering by this tag';
+      chip.appendChild(el('span', null, '#' + state.filterTag));
+      chip.appendChild(el('span', 'sl-tag-filter-x', '\u00d7'));
+      chip.setAttribute('aria-label', 'Remove tag filter ' + state.filterTag);
+      chip.addEventListener('click', function () { state.filterTag = ''; renderMainOnly(); });
+      left.appendChild(chip);
+    }
+    toolbar.appendChild(left);
+    var right = el('div', 'sl-toolbar-right');
+    var wrapLabel = el('label', 'sl-wrap-toggle');
+    var wrapBox = el('input');
+    wrapBox.type = 'checkbox';
+    wrapBox.checked = state.wrap;
+    wrapBox.addEventListener('change', function () {
+      state.wrap = this.checked;
+      saveWrap(state.wrap);
+      var blocks = document.querySelectorAll('#sl-main .sl-spl');
+      for (var i = 0; i < blocks.length; i++) blocks[i].classList.toggle('wrap', state.wrap);
+    });
+    wrapLabel.appendChild(wrapBox);
+    wrapLabel.appendChild(document.createTextNode('Wrap lines'));
+    right.appendChild(wrapLabel);
     var sortWrap = el('label', 'sl-sort');
     sortWrap.appendChild(document.createTextNode('Sort'));
     var sortSel = el('select', 'sl-sort-select');
@@ -715,7 +754,8 @@ require([
     });
     sortSel.addEventListener('change', function () { state.sort = this.value; renderMainOnly(); });
     sortWrap.appendChild(sortSel);
-    toolbar.appendChild(sortWrap);
+    right.appendChild(sortWrap);
+    toolbar.appendChild(right);
     main.appendChild(toolbar);
 
     if (rows.length === 0 && !state.error) {
@@ -783,7 +823,19 @@ require([
     var tags = tagsOf(q);
     if (tags.length) {
       var tw = el('div', 'sl-tags');
-      tags.forEach(function (t) { tw.appendChild(highlighted('span', 'sl-tag', t, state.search)); });
+      tags.forEach(function (t) {
+        var activeTag = t.toLowerCase() === state.filterTag.toLowerCase();
+        var tb = highlighted('button', 'sl-tag sl-tag-btn' + (activeTag ? ' active' : ''), t, state.search);
+        tb.type = 'button';
+        tb.title = activeTag ? 'Stop filtering by this tag' : 'Show queries tagged ' + t;
+        tb.setAttribute('aria-pressed', activeTag ? 'true' : 'false');
+        tb.addEventListener('click', function (e) {
+          e.stopPropagation();
+          state.filterTag = activeTag ? '' : t;
+          renderMainOnly();
+        });
+        tw.appendChild(tb);
+      });
       content.appendChild(tw);
     }
     if (!open && q.spl) content.appendChild(splBlock('div', 'sl-card-preview', previewLine(q.spl, state.search), state.search));
@@ -805,7 +857,7 @@ require([
 
     if (open) {
       var exp = el('div', 'sl-card-expanded');
-      exp.appendChild(splBlock('pre', 'sl-spl', q.spl, state.search));
+      exp.appendChild(splBlock('pre', 'sl-spl' + (state.wrap ? ' wrap' : ''), q.spl, state.search));
 
       var footer = el('div', 'sl-card-footer');
       footer.appendChild(el('span', 'sl-meta-text',
@@ -853,8 +905,18 @@ require([
   }
 
   /* ── Modal ────────────────────────────────────────────────── */
+  function formSignature(f) {
+    return JSON.stringify([f.title, f.description, f.spl, f.category, f.tags]);
+  }
+
+  function formDirty() {
+    return !!state.form &&
+      (formSignature(state.form) !== state.formSnapshot || !!(state.tagInput || '').trim());
+  }
+
   function openModal(q) {
     state.formError = null;
+    state.confirmDiscard = false;
     state.tagInput = '';
     if (q) {
       state.modal = 'edit';
@@ -867,6 +929,7 @@ require([
       state.modal = 'new';
       state.form = { title: '', description: '', spl: '', category: 'Security', tags: [] };
     }
+    state.formSnapshot = formSignature(state.form);
     render();
     focusModalField('.sl-input');
   }
@@ -878,7 +941,15 @@ require([
 
   function closeModal() {
     state.modal = null; state.form = null; state.formError = null;
+    state.formSnapshot = null; state.confirmDiscard = false;
     render();
+  }
+
+  function cancelModal() {
+    if (!formDirty()) { closeModal(); return; }
+    state.confirmDiscard = true;
+    render();
+    focusModalField('.sl-discard-keep');
   }
 
   function renderModal() {
@@ -950,7 +1021,7 @@ require([
 
     var actions = el('div', 'sl-modal-actions');
     var cancel = el('button', 'sl-btn-cancel', 'Cancel');
-    cancel.addEventListener('click', closeModal);
+    cancel.addEventListener('click', cancelModal);
     var save = el('button', 'sl-btn-primary', 'Save query');
     save.addEventListener('click', function () {
       if (!f.title.trim() || !f.spl.trim()) {
@@ -966,14 +1037,33 @@ require([
       if (state.modal === 'new') createQuery(payload);
       else updateQuery(f._key, payload);
     });
-    actions.appendChild(cancel);
-    actions.appendChild(save);
+    if (state.confirmDiscard) {
+      actions.className += ' sl-discard';
+      actions.setAttribute('role', 'alert');
+      actions.appendChild(el('span', 'sl-discard-text', 'Discard your changes?'));
+      var keep = el('button', 'sl-btn-cancel sl-discard-keep', 'Keep editing');
+      keep.addEventListener('click', function () {
+        state.confirmDiscard = false;
+        render();
+        focusModalField('.sl-input');
+      });
+      var discard = el('button', 'sl-btn-discard', 'Discard');
+      discard.addEventListener('click', closeModal);
+      actions.appendChild(keep);
+      actions.appendChild(discard);
+    } else {
+      actions.appendChild(cancel);
+      actions.appendChild(save);
+    }
     modal.appendChild(actions);
 
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
     modal.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save.click(); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !state.confirmDiscard) {
+        e.preventDefault();
+        save.click();
+      }
     });
     overlay.appendChild(modal);
     return overlay;
@@ -995,6 +1085,11 @@ require([
     var opened = applyPendingOpen();
     render();
     if (opened) revealCard(opened);
+  });
+
+  // Closing or reloading the tab with an unsaved draft triggers the browser's own warning
+  window.addEventListener('beforeunload', function (e) {
+    if (state.modal && formDirty()) { e.preventDefault(); e.returnValue = ''; }
   });
 
   readHash();
