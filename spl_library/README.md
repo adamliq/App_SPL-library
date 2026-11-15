@@ -18,7 +18,8 @@ private_classic check sets (0 failures; every build is checked):
 - Layout adapts to the panel width; categories become a chip strip on narrow panels
 - Full-text search across titles, descriptions, tags, and SPL, with matches
   highlighted on the cards
-- Category filters with live counts; click any tag on a card to filter by that tag
+- Category filters with live counts, plus Starred and Mine (queries you added)
+- Popular tags in the sidebar; click any tag there or on a card to filter by it
 - Admins can add, rename, recolor, reorder and delete categories (Manage, next
   to the Category heading). Renaming carries the queries along; deleting a
   category moves its queries to Other, which cannot be removed
@@ -29,6 +30,9 @@ private_classic check sets (0 failures; every build is checked):
 - Each card previews its SPL (the matching line while searching); expand it to
   view the full query with syntax highlighting (long lines wrap; turn off
   "Wrap lines" to scroll them instead, remembered per browser)
+- Copy SPL and Open in Search on each card; Copy link, Duplicate, Edit and
+  Delete are in its More (⋯) menu
+- The query form shows a live, highlighted preview of the SPL as you type
 - Star queries to collect them under Starred; stars are saved per user
 - Sort by newest, title, or most used (each Copy SPL and Open in Search click
   counts as a use)
@@ -45,7 +49,8 @@ private_classic check sets (0 failures; every build is checked):
   including its use count and star; saves are confirmed the same way
 - Splunk's app menu links straight to Starred and to the add-query form
 - Auto-seeds example queries on first load (into an empty collection only)
-- Records author and created/updated dates per query
+- Records who added each query and when, and who last edited it ("Edited
+  today by …" on the card)
 
 ## Storage
 

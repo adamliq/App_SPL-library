@@ -226,6 +226,11 @@ function check(ok, what) {
   check(await card.waitFor({ timeout: 15000 }).then(() => true, () => false), 'saved query appears in the list');
   check(await page.locator('.sl-toast', { hasText: 'Query added' }).isVisible(), 'a notification confirms the new query');
   const key = await card.getAttribute('data-key');
+  const menuAction = async (c, item) => { await c.locator('.sl-more').click(); await page.click(`.sl-menu ${item}`); };
+  const kvGet = (coll, k) => page.evaluate(async ([coll, k]) => {
+    const r = await fetch(`/en-US/splunkd/__raw/servicesNS/nobody/spl_library/storage/collections/data/${coll}/${encodeURIComponent(k)}?output_mode=json`);
+    return { status: r.status, body: r.ok ? await r.json() : null };
+  }, [coll, k]);
   const isOpen = async (c = card) => /\bopen\b/.test(await c.getAttribute('class'));
   const expand = async () => { if (!(await isOpen())) await card.locator('.sl-card-header').click(); };
 
@@ -252,7 +257,7 @@ function check(ok, what) {
 
   // Copy link, then follow it in a new tab
   await expand();
-  await card.locator('.sl-btn-link').click();
+  await menuAction(card, '.sl-menu-link');
   const link = await page.evaluate(() => navigator.clipboard.readText());
   check(link.endsWith(`#open=${encodeURIComponent(key)}`), 'Copy link puts a link to the query on the clipboard');
   const tab = await ctx.newPage();
@@ -301,16 +306,77 @@ function check(ok, what) {
   check(await page.inputValue('.sl-sort-select') === 'title', 'the sort order is restored from the URL');
   await page.selectOption('.sl-sort-select', 'newest');
 
+  // More menu: four actions, arrow keys, Escape, clicking elsewhere
+  await expand();
+  const moreBtn = card.locator('.sl-more');
+  await moreBtn.click();
+  check(await page.locator('.sl-menu .sl-menu-item').count() === 4, 'the More menu lists Copy link, Duplicate, Edit and Delete');
+  check(await page.evaluate(() => document.activeElement.classList.contains('sl-menu-link')), 'opening the menu focuses its first item');
+  await page.keyboard.press('ArrowDown');
+  check(await page.evaluate(() => document.activeElement.classList.contains('sl-menu-duplicate')), 'arrow keys move through the menu');
+  await snap('light-menu');
+  await page.keyboard.press('Escape');
+  check(!(await page.isVisible('.sl-menu')) && await page.evaluate(() => document.activeElement.classList.contains('sl-more')),
+    'Escape closes the menu and returns focus to the ⋯ button');
+  await moreBtn.click();
+  await page.mouse.click(5, 5);
+  check(!(await page.isVisible('.sl-menu')), 'clicking elsewhere closes the menu');
+
+  // Duplicate, and the live SPL preview in the form
+  await menuAction(card, '.sl-menu-duplicate');
+  check(await page.inputValue('.sl-modal .sl-input >> nth=0') === `Copy of ${title}` &&
+    (await page.inputValue('.sl-modal .sl-textarea')).includes(token), 'Duplicate opens the add form pre-filled');
+  const previewCmds = () => page.locator('.sl-form-preview .sl-tk-cmd').allTextContents();
+  check((await previewCmds()).join(',') === 'stats,where', 'the form previews the SPL with syntax highlighting');
+  await page.fill('.sl-modal .sl-textarea', 'index=main | timechart count');
+  check((await previewCmds()).join(',') === 'timechart', 'the preview updates while typing');
+  await snap('light-form-preview');
+  await page.keyboard.press('Escape');
+  await page.click('.sl-btn-discard');
+
+  // Edit history: who last edited a query, and when
+  await menuAction(card, '.sl-menu-edit');
+  await page.fill('.sl-modal .sl-input >> nth=1', 'edited by the UI test');
+  await page.click('.sl-modal .sl-btn-primary');
+  check(await page.locator('.sl-toast', { hasText: 'Query saved' }).waitFor({ timeout: 15000 }).then(() => true, () => false),
+    'a notification confirms the edit');
+  check(await page.evaluate(() => document.activeElement.classList.contains('sl-more')), 'saving returns focus to the ⋯ button');
+  await expand();
+  check(new RegExp(`Edited today by ${USER}`).test(await card.locator('.sl-meta-text').textContent()),
+    'the card shows who last edited it and when');
+  check(((await kvGet('spl_library_queries', key)).body || {}).updated_by === USER, 'the editor is saved with the query');
+
+  // Mine and Popular tags match what is stored
+  const stored = await page.evaluate(async () => (await (await fetch(
+    '/en-US/splunkd/__raw/servicesNS/nobody/spl_library/storage/collections/data/spl_library_queries?output_mode=json')).json()));
+  const mine = stored.filter(q => q.author === USER).length;
+  check(Number(await page.textContent('.sl-cat-mine .sl-cat-count')) === mine, 'the Mine count matches the queries you added');
+  await page.click('.sl-cat-mine');
+  await page.waitForTimeout(200);
+  check((await cards().count()) === mine && await card.isVisible() && hash().includes('cat=Mine'),
+    'the Mine filter shows exactly your queries');
+  await page.locator('.sl-cat-btn').first().click();
+  const tagCounts = {};
+  stored.forEach(q => [...new Set(String(q.tags || '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean))]
+    .forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+  const top = Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a] || a.localeCompare(b))[0];
+  const firstTag = page.locator('.sl-side-tag').first();
+  check((await firstTag.textContent()) === `${top}${tagCounts[top]}`, `the most-used tag (${top}) heads Popular tags with its count`);
+  await firstTag.click();
+  await page.waitForTimeout(200);
+  check((await cards().count()) === tagCounts[top] && await page.isVisible('.sl-tag-filter'),
+    'clicking a popular tag filters by it');
+  await snap('light-popular-tag');
+  await page.locator('.sl-side-tag').first().click();
+  await page.waitForTimeout(200);
+  check(!(await page.isVisible('.sl-tag-filter')), 'clicking it again clears the filter');
+
   // Deleting the query also removes its usage count and its star
   await expand();
-  await card.locator('.sl-btn-delete').click();
+  await menuAction(card, '.sl-menu-delete');
   check(await card.waitFor({ state: 'detached', timeout: 15000 }).then(() => true, () => false),
     'deleted query disappears from the list');
   await page.waitForTimeout(1000);
-  const kvGet = (coll, k) => page.evaluate(async ([coll, k]) => {
-    const r = await fetch(`/en-US/splunkd/__raw/servicesNS/nobody/spl_library/storage/collections/data/${coll}/${encodeURIComponent(k)}?output_mode=json`);
-    return { status: r.status, body: r.ok ? await r.json() : null };
-  }, [coll, k]);
   check((await kvGet('spl_library_usage', key)).status === 404, 'deleting a query removes its usage count');
   const fav = await kvGet('spl_library_favorites', USER);
   check(!(fav.body && (fav.body.keys || []).includes(key)), 'deleting a query removes it from favorites');
@@ -330,7 +396,7 @@ function check(ok, what) {
 
   // Delete it again for good
   await expand();
-  await card.locator('.sl-btn-delete').click();
+  await menuAction(card, '.sl-menu-delete');
   check(await card.waitFor({ state: 'detached', timeout: 15000 }).then(() => true, () => false),
     'the query can be deleted again');
   await page.waitForTimeout(1000);
@@ -417,7 +483,8 @@ function check(ok, what) {
   await saveCats();
   const order = await sidebarCats();
   check(order.includes(cat2) && !order.includes(cat1), 'renaming a category updates the sidebar');
-  check(order.indexOf(cat2) === idx + 2 - 1, 'moving a category up changes the sidebar order');
+  // The sidebar lists All, Starred and Mine before the categories
+  check(order.indexOf(cat2) === idx + 3 - 1, 'moving a category up changes the sidebar order');
   check((await catCard.locator('.sl-badge').textContent()) === cat2 && await storedCategory() === cat2,
     'renaming a category moves its queries along with it');
   await page.reload();
@@ -438,7 +505,7 @@ function check(ok, what) {
   check(await page.isDisabled(`.sl-cat-row >> nth=${otherRow} >> .sl-cat-delete`), 'Other cannot be deleted');
   await page.click('.sl-cat-modal .sl-btn-cancel');
   if (!/\bopen\b/.test(await catCard.getAttribute('class'))) await catCard.locator('.sl-card-header').click();
-  await catCard.locator('.sl-btn-delete').click();
+  await menuAction(catCard, '.sl-menu-delete');
   await catCard.waitFor({ state: 'detached', timeout: 15000 });
 
   // Users without write access to categories never see Manage, and Splunk refuses their writes
